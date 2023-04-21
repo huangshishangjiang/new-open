@@ -1,0 +1,51 @@
+from pyspark.sql import SparkSession, functions as F
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
+from pyspark.conf import SparkConf
+import logging
+
+# 设置日志级别为INFO
+logging.basicConfig(level=logging.INFO)
+
+conf = SparkConf()
+
+# 定义schema
+schema = StructType([
+    StructField("id", IntegerType(), True),
+    StructField("device_id", StringType(), True),
+    StructField("longitude", DoubleType(), True),
+    StructField("latitude", DoubleType(), True),
+    StructField("time", StringType(), True),
+])
+
+# 创建SparkSession
+spark = SparkSession.builder.appName("trace").getOrCreate()
+
+# 定义读取路径
+path = "/Users/mlt/Downloads/sparkdataset/"
+
+# 监听该路径下新产生的txt文件，并读取文件内容
+df = spark.readStream.option("header", "true").option("delimiter", " ").schema(schema).csv(path)
+
+# 新增当前txt文件名列
+df = df.withColumn("filename", F.input_file_name())
+
+# 写入MySQL表trace
+df.writeStream \
+    .option("checkpointLocation", "/tmp/checkpoints") \
+    .option("truncate", "true") \
+    .foreachBatch(lambda df, epoch_id: df.write.format("jdbc")  \
+    .option("checkpointLocation", "/tmp/checkpoints") \
+    .option("truncate", "true") \
+    .option("url", "jdbc:mysql://47.113.227.103:3306") \
+    .option("driver", "com.mysql.jdbc.Driver") \
+    .option("dbtable", "test.sparktest") \
+    .option("user", "root") \
+    .option("password", "6929519519.aaa") \
+    .option("batchsize", 1000) \
+    .option("isolationLevel", "NONE") \
+                  .mode("append") \
+                  .save()) \
+    .start()
+
+# 启动Spark应用程序
+spark.streams.awaitAnyTermination()
